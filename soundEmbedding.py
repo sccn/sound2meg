@@ -1,6 +1,6 @@
 import re
 import numpy as np
-import pytorch
+import torch
 from sound2vec import prepare_model, segment_audio, prepare_feature_extractor, three_second
 
 
