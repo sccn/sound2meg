@@ -1,7 +1,7 @@
 import re
 import numpy as np
 import pytorch
-from sound2vec import prepare_model, segment_audio, prepare_feature_extractor
+from sound2vec import prepare_model, segment_audio, prepare_feature_extractor, three_second
 
 
 def main():
@@ -30,7 +30,19 @@ def main():
 
           output = logits.detach().numpy()
           np.save(f'{name}.npy', output)
-          
+
+# Only first three second segements
+#   for wav_file in files:
+#       name = re.search('(\d+)\.', wav_file).group().replace('.', '_')
+
+#       audio_input, sample_rate = three_second(wav_file)
+#       feature_extractor = prepare_feature_extractor(sample_rate)
+
+#       input_values = feature_extractor(audio_input, return_tensors="pt").input_values
+#       logits = model(input_values).logits
+
+#       output = logits.detach().numpy()
+#       np.save(f'{name}.npy', output)
           
 if __name__ == "__main__":
     main()
