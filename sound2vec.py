@@ -10,15 +10,15 @@ def segment_audio(audio_file):
     audio_input, sample_rate = librosa.load(audio_file)
     audio_segment = sample_rate * 3
     segments = []
-    if len(audio_input) > audio_segment * 2:
-    check = True
-    while check:
-        segments.append(audio_input[:audio_segment])
-        audio_input = audio_input[audio_segment:]
-        if len(audio_input) < audio_segment:
-            check = False
+    if len(audio_input) >= audio_segment * 2:
+      check = True
+      while check:
+          segments.append(audio_input[:audio_segment])
+          audio_input = audio_input[audio_segment:]
+          if len(audio_input) < audio_segment:
+              check = False
     else:
-    segments.append(audio_input[:audio_segment])
+      segments.append(audio_input[:audio_segment])
     return segments, sample_rate
 
 # return first 3 second segment in audio file
