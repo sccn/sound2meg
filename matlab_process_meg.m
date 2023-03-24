@@ -1,3 +1,5 @@
+clear
+eeglab
 files = { ...
     'sub-A2002/meg/sub-A2002_task-auditory_meg.ds';
 'sub-A2003/meg/sub-A2003_task-auditory_meg.ds';
@@ -49,7 +51,7 @@ files = { ...
 'sub-A2059/meg/sub-A2059_task-auditory_meg.ds';
 'sub-A2061/meg/sub-A2061_task-auditory_meg.ds';
 'sub-A2062/meg/sub-A2062_task-auditory_run-2_meg.ds';
-'sub-A2063/meg/sub-A2063_task-auditory_run-2_meg.ds';
+%'sub-A2063/meg/sub-A2063_task-auditory_run-2_meg.ds';% check size 22 trials
 'sub-A2064/meg/sub-A2064_task-auditory_meg.ds';
 'sub-A2065/meg/sub-A2065_task-auditory_meg.ds';
 'sub-A2066/meg/sub-A2066_task-auditory_meg.ds';
@@ -62,7 +64,7 @@ files = { ...
 'sub-A2073/meg/sub-A2073_task-auditory_meg.ds';
 'sub-A2075/meg/sub-A2075_task-auditory_meg.ds';
 'sub-A2076/meg/sub-A2076_task-auditory_run-2_meg.ds';
-'sub-A2077/meg/sub-A2077_task-auditory_meg.ds';
+%'sub-A2077/meg/sub-A2077_task-auditory_meg.ds';% check size
 'sub-A2078/meg/sub-A2078_task-auditory_meg.ds';
 'sub-A2079/meg/sub-A2079_task-auditory_meg.ds';
 'sub-A2080/meg/sub-A2080_task-auditory_meg.ds';
@@ -107,17 +109,19 @@ if ~exist('eeglab')
     addpath('~/data/matlab/eeglab'); eeglab
 end
 
-filePath = '/Users/arno/Downloads/Donders/';
+filePath = fullfile(pwd, 'Donders');
 for iFile = 1:length(files)
     try
         subject    = files{iFile}(1:9);
         fileMat    = fullfile(filePath, [ subject '.mat' ]);
-        if ~exist(fileMat, "file")
+        if 1 %~exist(fileMat, "file")
             subjectnum = str2num( files{iFile}(7:9) );
             EEG = pop_fileio( fullfile(filePath, files{iFile}), 'dataformat','auto');
             EEG = pop_select(EEG, 'chantype', 'meggrad');
             EEG = eeg_epoch2continuous(EEG);
+            EEG = pop_resample(EEG, 120);
             EEG = pop_epoch(EEG, 'wav', [0 3]);
+            EEG = pop_rmbase(EEG, [0 0.5]);
         
             audioFile = cell(1, EEG.trials);
             for iEvent = 1:length(EEG.event)
