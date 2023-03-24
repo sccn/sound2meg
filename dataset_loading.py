@@ -4,6 +4,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 from scipy.io import loadmat
 from os import listdir
+import os
+import glob
 import numpy as np
 from sklearn.preprocessing import RobustScaler
 import random
@@ -16,8 +18,15 @@ class Sound2MEGDataset(Dataset):
     self.sizes = np.array(loadmat(self.path + 'file_sizes.mat')['file_sizes'][0])
     self.filename = []
     self.subjects = []
-    for file in listdir(path + 'mat_files'):
-      self.subjects.append(file[6:9])             #Making a list of all the mat files
+    self.sizes = np.empty(0, dtype=int)
+    self.subjects = []
+    count = 0
+    for subject in range(0, 126):
+      if os.path.exists(self.path + 'MEG_Signals/S%03dT000.npy'%subject):
+        files = glob.glob(self.path + 'MEG_Signals/S%03dT*.npy'%subject)
+        self.sizes = np.append(self.sizes, len(files))
+        self.subjects.append( '%03d'%subject )
+        count = count + 1
   def __len__(self):
     return sum(self.sizes)
   def __getitem__(self, idx):
