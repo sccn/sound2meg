@@ -144,31 +144,30 @@ optimizer = optim.Adam(BrainModule.parameters(), lr = 0.0003)
 loss_train = []
 loss_val = []
 
-for i in range(1):
+for i in range(10):
   loss_t = 0
   loss_v = 0
-  for MEG, WAV, Sub in Training_Data_Batches:
-    Sub = Sub.tolist()
-    Z = BrainModule(MEG.to(device), Sub)
-    Z = Z[:, :, :, 0]
-    loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
-    print(loss.item())
-    torch.autograd.set_detect_anomaly(True)
-    optimizer.zero_grad()
-    loss.backward()
-    loss_t = loss_t + loss.item()
-    optimizer.step()
-  print(loss_t/len(Training_Data_Batches))
-  loss_train.append(loss_t/len(Training_Data_Batches))
+  for j in range(13):
+    for MEG, WAV, Sub in Training_Data_Batches:
+      Sub = Sub.tolist()
+      Z = BrainModule(MEG.to(device), Sub)
+      Z = Z[:, :, :, 0]
+      loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
+      torch.autograd.set_detect_anomaly(True)
+      optimizer.zero_grad()
+      loss.backward()
+      loss_t = loss_t + loss.item()
+      optimizer.step()
+  loss_train.append(loss_t/(13*len(Training_Data_Batches)))
   for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
     Z_val = BrainModule(MEG_val.to(device), Sub_val)
     loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
     print(loss.item())
     loss_v = loss_v + loss.item()
-  print(loss_v/len(Validation_Data_Batches))
   loss_val.append(loss_v/len(Validation_Data_Batches))
   gc.collect()
   torch.cuda.empty_cache()
 
 print(loss_train)
 print(loss_val)
+
