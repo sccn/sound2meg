@@ -55,4 +55,5 @@ class Sound2MEGDataset(Dataset):
     #Robust Scaler
     scaler = RobustScaler().fit(MEG_Signal)
     MEG_Signal = scaler.transform(MEG_Signal)
+    MEG_Signal = np.minimum(MEG_Signal, 20)
     return torch.from_numpy(MEG_Signal), torch.from_numpy(Sound_Signal) , idx_file
