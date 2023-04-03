@@ -83,43 +83,65 @@ class Net(nn.Module):
   def __init__(self, path, F):
     super(Net, self).__init__()
     self.SA = SpatialAttention(273, 270, 32, path)
-    self.Subject = SubjectLayer()
+    self.Subject = SubjectLayer().to(device)
     self.F = F
-  def forward(self, y, s_idx):
-    x1 = self.SA(y).unsqueeze(0)
-    x2 = x1.permute((1, 2, 3, 0)) # subject attention?
-    x3 = nn.Conv2d(270, 270, (1, 1))(x2)
-    x = self.Subject(x3, s_idx)
-    for k in range(1,6):
+    self.conv1 = nn.Conv2d(270, 270, (1, 1)).to(device)
+    self.conv2 = nn.Conv2d(320, 640, (1, 1)).to(device)
+    self.conv3 = nn.Conv2d(640, self.F, (1, 1)).to(device)
+    self.gelu = nn.GELU().to(device)
+    self.loop_convs = []
+    self.loop_batchnorms = []
+    self.loop_gelus = []
+    self.loop_glus = []
+    for k in range(1, 6):
       p = pow(2,(2*k)%5)
       q = pow(2,(2*k+1)%5)
-      if k == 1:
-        x = nn.Conv2d(270, 320, (3, 1), dilation = 1, padding = (1, 0))(x)
-        x = nn.BatchNorm2d(320)(x)
-        x = nn.GELU()(x)
-        x = nn.Conv2d(320, 320, (3, 1), dilation = 1, padding = (1, 0))(x)
-        x = nn.BatchNorm2d(320)(x)
-        x = nn.GELU()(x)
-        x = nn.Conv2d(320, 640, (3, 1), dilation = 2, padding = (2, 0))(x)
+      self.convs = []
+      self.batchnorms = []
+      self.gelus = []
+      self.convs.append(nn.Conv2d(320, 320, (3, 1), dilation = p, padding = (p, 0)).to(device))
+      self.convs.append(nn.Conv2d(320, 320, (3, 1), dilation = q, padding = (q, 0)).to(device))
+      self.convs.append(nn.Conv2d(320, 640, (3, 1), dilation = 2, padding = (2, 0)).to(device))
+      for i in range(2):
+        self.batchnorms.append(nn.BatchNorm2d(320).to(device))
+        self.gelus.append(nn.GELU().to(device))
+      self.loop_convs.append(self.convs)
+      self.loop_batchnorms.append(self.batchnorms)
+      self.loop_gelus.append(self.gelus)
+      self.loop_glus.append(nn.GLU().to(device))
+    self.loop_convs[0][0] = nn.Conv2d(270, 320, (3, 1), dilation = 1, padding = (1, 0)).to(device)
+  def forward(self, x, s_idx):
+    x = self.SA(x).unsqueeze(3)
+    x = self.conv1(x)
+    x = self.Subject(x, s_idx)
+    for i in range(5):
+      if i == 0:
+        x = self.loop_convs[0][0](x)
+        x = self.loop_batchnorms[0][0](x)
+        x = self.loop_gelus[0][0](x)
+        x = self.loop_convs[0][1](x)
+        x = self.loop_batchnorms[0][1](x)
+        x = self.loop_gelus[0][1](x)
+        x = self.loop_convs[0][2](x)
         x = torch.transpose(x, 3, 1)
-        x = nn.GLU()(x)
+        x = self.loop_glus[0](x)
         x = torch.transpose(x, 3, 1)
       else:
-        x1 = nn.Conv2d(320, 320, (3, 1), dilation = p, padding = (p, 0))(x)
-        x1 = nn.BatchNorm2d(320)(x1)
-        x1 = nn.GELU()(x1)
+        x1 = self.loop_convs[i][0](x)
+        x1 = self.loop_batchnorms[i][0](x)
+        x1 = self.loop_gelus[i][0](x)
         x2 = x + x1
-        x3 = nn.Conv2d(320, 320, (3, 1), dilation = q, padding = (q, 0))(x2)
-        x3 = nn.BatchNorm2d(320)(x3)
-        x3 = nn.GELU()(x3)
-        x4 = x2 + x2
-        x_out = nn.Conv2d(320, 640, (3, 1), dilation = 2, padding = (2, 0))(x4)
-        x_out = torch.transpose(x_out, 3, 1)
-        x_out = nn.GLU()(x_out)
-        x_out = torch.transpose(x_out, 3, 1)
-    x_out = nn.Conv2d(320, 640, (1, 1))(x_out)
-    x_out = nn.GELU()(x_out)
-    x_out = nn.Conv2d(640, self.F, (1, 1))(x_out)
+        x3 = self.loop_convs[i][1](x2)
+        x3 = self.loop_batchnorms[i][1](x3)
+        x3 = self.loop_gelus[i][1](x3)
+        x4 = x2 + x3
+        x5 = self.loop_convs[i][2](x4)
+        x5 = torch.transpose(x5, 3, 1)
+        x5 = self.loop_glus[i](x5)
+        x = torch.transpose(x5, 3, 1)
+    x_out = self.conv2(x)
+    x_out = self.gelu(x_out)
+    x_out = self.conv3(x_out)
     return x_out
 
 def CLIP_loss(Z, Y):
