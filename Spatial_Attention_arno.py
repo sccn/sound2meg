@@ -195,20 +195,20 @@ loss_val = []
 for i in range(80):
   loss_t = 0
   loss_v = 0
-  for MEG, WAV, Sub in Training_Data_Batches:
-    Sub = Sub.tolist()
-    Z = BrainModule(MEG.to(device), Sub)
-    Z = Z[:, :, :, 0]
-    loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
-    # print("Batch training loss: " + str(loss.item()))
-    torch.autograd.set_detect_anomaly(True)
-    optimizer.zero_grad()
-    loss.backward()
-    loss_t = loss_t + loss.item()
-    optimizer.step()
+  for j in range(13):
+    for MEG, WAV, Sub in Training_Data_Batches:
+      Sub = Sub.tolist()
+      Z = BrainModule(MEG.to(device), Sub)
+      Z = Z[:, :, :, 0]
+      loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
+      torch.autograd.set_detect_anomaly(True)
+      optimizer.zero_grad()
+      loss.backward()
+      loss_t = loss_t + loss.item()
+      optimizer.step()
   print("Average training loss: " + str(loss_t/len(Training_Data_Batches)), end='')
   sys.stdout.flush()
-  loss_train.append(loss_t/len(Training_Data_Batches))
+  loss_train.append(loss_t/(13*len(Training_Data_Batches)))
   for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
     Z_val = BrainModule(MEG_val.to(device), Sub_val)
     loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
@@ -217,8 +217,8 @@ for i in range(80):
   print("Average validation loss: " + str(loss_v/len(Validation_Data_Batches)))
   sys.stdout.flush()
   loss_val.append(loss_v/len(Validation_Data_Batches))
-  #gc.collect()
-  #torch.cuda.empty_cache()
+  gc.collect()
+  torch.cuda.empty_cache()
 
 print(loss_train)
 print(loss_val)
