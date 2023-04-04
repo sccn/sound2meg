@@ -28,7 +28,7 @@ class SubjectLayer(nn.Module):
     self.layers = []
 
     for i in range(124): #124 subjects
-      layer = nn.Conv2d(270, 270, 1)
+      layer = nn.Conv2d(270, 270, 1).to(device)
       self.layers.append(layer)
       
   def forward(self, x, s_idx):
@@ -66,7 +66,7 @@ class SpatialAttention(nn.Module):
     self.sin = torch.stack(self.sin).to(device)
   def forward(self, X):
     N = X.size()[0]
-    SA = torch.zeros(N, 270, 360)
+    SA = torch.zeros(N, 270, 360).to(device)
     z_r = self.z.real
     z_i = self.z.imag
     a = (torch.mm(z_r.float(), torch.transpose(self.cos, 0, 1).float()) + torch.mm(z_i.float(), torch.transpose(self.sin, 0, 1).float())).to(device)
@@ -75,7 +75,7 @@ class SpatialAttention(nn.Module):
     exp2 = torch.mm(exp2, torch.ones(1, 360).to(device))
     for i in range(N):
       exp1 = torch.mm(torch.exp(a), X[i]).to(device)
-      SA[i] = exp1/exp2
+      SA[i] = (exp1/exp2).to(device)
       #SA[i] = SpatialAttentionSoftmax(self.input, self.out, X[i], a)
     return SA
 
@@ -150,14 +150,14 @@ def CLIP_loss(Z, Y):
   log_softmax = torch.zeros(N).to(device)
   Z_row = torch.reshape(Z, (N, -1)).to(device)
   Y_row = torch.reshape(Y, (N, -1)).to(device)
-  inner_product = (torch.mm(Z_row, torch.transpose(Y_row, 1, 0))/(N*N)).to(device)
+  inner_product = (torch.mm(Z_row, torch.transpose(Y_row, 1, 0))).to(device)
   for i in range(N):
     inn = inner_product[i, :].to(device)
-    log_softmax[i] = torch.log(nn.functional.softmax(inn, -1))[i]
+    log_softmax[i] = torch.log(nn.functional.softmax(inn, -1).clamp(min=1e-4))[i]
   return sum(-1*log_softmax)
 
-Dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/arno/')
-training_data, validation_data, test_data = random_split(Dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(42))
+dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/arno/')
+training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(42))
 Training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
 Validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
 BrainModule = Net('/expanse/projects/nsg/external_users/public/arno/', 120)
@@ -166,25 +166,24 @@ optimizer = optim.Adam(BrainModule.parameters(), lr = 0.0003)
 loss_train = []
 loss_val = []
 
-for i in range(10):
+for i in range(50):
   loss_t = 0
   loss_v = 0
-  for j in range(13):
-    for MEG, WAV, Sub in Training_Data_Batches:
-      Sub = Sub.tolist()
-      Z = BrainModule(MEG.to(device), Sub)
-      Z = Z[:, :, :, 0]
-      loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
-      torch.autograd.set_detect_anomaly(True)
-      optimizer.zero_grad()
-      loss.backward()
-      loss_t = loss_t + loss.item()
-      optimizer.step()
-  loss_train.append(loss_t/(13*len(Training_Data_Batches)))
-  for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
-    Z_val = BrainModule(MEG_val.to(device), Sub_val)
-    loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
+  for MEG, WAV, Sub in Training_Data_Batches:
+    Sub = Sub.tolist()
+    optimizer.zero_grad()
+    Z = BrainModule(MEG.to(device), Sub)
+    Z = Z[:, :, :, 0]
+    loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
     print(loss.item())
+    loss.backward()
+    loss_t = loss_t + loss.item()
+    optimizer.step()
+  loss_train.append(loss_t/(len(Training_Data_Batches)))
+  for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
+    with torch.no_grad():
+      Z_val = BrainModule(MEG_val.to(device), Sub_val)
+      loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
     loss_v = loss_v + loss.item()
   loss_val.append(loss_v/len(Validation_Data_Batches))
   gc.collect()
@@ -192,4 +191,3 @@ for i in range(10):
 
 print(loss_train)
 print(loss_val)
-
