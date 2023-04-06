@@ -169,6 +169,7 @@ loss_val = []
 for i in range(50):
   loss_t = 0
   loss_v = 0
+  BrainModule.train()
   for MEG, WAV, Sub in Training_Data_Batches:
     Sub = Sub.tolist()
     optimizer.zero_grad()
@@ -180,6 +181,7 @@ for i in range(50):
     loss_t = loss_t + loss.item()
     optimizer.step()
   loss_train.append(loss_t/(len(Training_Data_Batches)))
+  BrainModule.eval()
   for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
     with torch.no_grad():
       Z_val = BrainModule(MEG_val.to(device), Sub_val)
