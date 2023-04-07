@@ -145,22 +145,28 @@ class Net(nn.Module):
     return x_out
 
 def CLIP_loss(Z, Y):
-  N = Y.size(dim = 0)
-  #inner_product = torch.zeros(N, N)
-  log_softmax = torch.zeros(N).to(device)
-  Z_row = torch.reshape(Z, (N, -1)).to(device)
-  Y_row = torch.reshape(Y, (N, -1)).to(device)
-  inner_product = (torch.mm(Z_row, torch.transpose(Y_row, 1, 0))).to(device)
-  for i in range(N):
-    inn = inner_product[i, :].to(device)
-    log_softmax[i] = torch.log(nn.functional.softmax(inn, -1).clamp(min=1e-4))[i]
-  return sum(-1*log_softmax)
+    '''
+    New loss using cross entropy implementation
+    '''
+    N = Y.size(dim = 0) # batch size
+    Z_row = torch.reshape(Z, (N, -1)) # flatten to be N x F
+    Y_row = torch.reshape(Y, (N, -1)) # flatten to be N x F
+    inner_product = (torch.mm(Z_row, Y_row.T)/(N*N)).to(device) # N x N. The normalization?
 
-dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/arno/')
+    target = torch.arange(N, device=device)
+    loss_brain = torch.nn.functional.cross_entropy(inner_product, target)
+    loss_sound = torch.nn.functional.cross_entropy(inner_product.T, target)
+    loss = ((loss_brain + loss_sound)/2).to(device)
+    
+    return loss
+
+embedding_type = 'Wav2Vec'
+F = 120
+dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/arno/', embedding_type)
 training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(42))
 Training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
 Validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
-BrainModule = Net('/expanse/projects/nsg/external_users/public/arno/', 120)
+BrainModule = Net('/expanse/projects/nsg/external_users/public/arno/', F)
 BrainModule.to(device)
 optimizer = optim.Adam(BrainModule.parameters(), lr = 0.0003)
 loss_train = []
@@ -185,6 +191,7 @@ for i in range(50):
   for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
     with torch.no_grad():
       Z_val = BrainModule(MEG_val.to(device), Sub_val)
+      Z_val = Z_val[:, :, :, 0]
       loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
     loss_v = loss_v + loss.item()
   loss_val.append(loss_v/len(Validation_Data_Batches))
