@@ -12,13 +12,18 @@ import random
 import csv
 
 class Sound2MEGDataset(Dataset):
-  def __init__(self, path):
+  def __init__(self, path, embedding_type):
     #self.wav_files = wav_files
     self.path = path
 #     self.sizes = np.array(loadmat(self.path + 'file_sizes.mat')['file_sizes'][0]) # dutruong - unused
 #     self.filename = []  # dutruong - unused
     self.sizes = np.empty(0, dtype=int) # dutruong - for __len__ to work
     self.subjects = []
+    self.embedding_type = embedding_type
+    if embedding_type == 'mel':
+      self.subpath = 'Mel_Embedding120/mel_'
+    elif embedding_type == 'Wav2Vec':
+      self.subpath = 'Wav2Vec_Embeddings/'
 #     count = 0 # dtruong - unused
     for subject in range(0, 126):
       if os.path.exists(self.path + 'MEG_Signals/S%03dT000.npy'%subject):
@@ -49,7 +54,9 @@ class Sound2MEGDataset(Dataset):
     #Finding the associated audiofile, and extracting only the number of the file out of it
     #audio_file = mat_file['audiofiles'][0, idx_sound][0][0:3]
     #The filenames are in the format 'mel_<number>.npy' so importing accordingly
-    Sound_Signal = np.load(self.path + 'Mel_Embedding120/mel_' + audio_file + '.npy')
+    Sound_Signal = np.load(self.path + self.subpath + audio_file + '.npy')
+    if self.embedding_type == 'Wav2Vec':
+      Sound_Signal = np.transpose(Sound_Signal)
     #mat_file = mat_file['data']
     MEG_Signal = np.float32(MEG_Signal[:273, :]) # dutruong - some dataset have more channels
 #     #Baseline Correction
