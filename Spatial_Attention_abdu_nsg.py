@@ -45,7 +45,7 @@ class SpatialAttention(nn.Module):
     self.K = K
     self.z = Parameter(torch.randn(self.out, K*K, dtype = torch.cfloat)/(32*32))
     self.z.requires_grad = True
-    self.positions = loadmat(path + 'electrode_positions.mat')
+    self.positions = loadmat(path + 'arno/electrode_positions.mat')
     self.positions = self.positions['positions']
     self.x = torch.tensor(self.positions[:, 0]).to(device)
     self.y = torch.tensor(self.positions[:, 1]).to(device)
@@ -161,14 +161,17 @@ def CLIP_loss(Z, Y):
     return loss
 
 embedding_type = 'Wav2Vec'
-F = 120
-dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/arno/', embedding_type)
+if embedding_type == 'mel':
+  F = 120
+elif embedding_type == 'Wav2Vec':
+  F = 1024
+dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/', embedding_type)
 training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(42))
 Training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
 Validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
-BrainModule = Net('/expanse/projects/nsg/external_users/public/arno/', F)
+BrainModule = Net('/expanse/projects/nsg/external_users/public/', F)
 BrainModule.to(device)
-optimizer = optim.Adam(BrainModule.parameters(), lr = 0.0003)
+optimizer = optim.Adam(BrainModule.parameters(), lr = 0.00003)
 loss_train = []
 loss_val = []
 
