@@ -175,7 +175,7 @@ optimizer = optim.Adam(BrainModule.parameters(), lr = 0.00003)
 loss_train = []
 loss_val = []
 
-for i in range(50):
+for i in range(100):
   loss_t = 0
   loss_v = 0
   BrainModule.train()
@@ -200,6 +200,8 @@ for i in range(50):
   loss_val.append(loss_v/len(Validation_Data_Batches))
   gc.collect()
   torch.cuda.empty_cache()
+
+torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/epochs100seed42.pth')
 
 print(loss_train)
 print(loss_val)
