@@ -231,4 +231,4 @@ for i in range(L):
     k = k+1
 print(k/L*100)
 
-torch.save(BrainModule.state_dict(), 'epochs100seed32.pth')
+torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/arno/epochs100seed32.pth')
