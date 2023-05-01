@@ -18,9 +18,7 @@ from scipy.io import loadmat
 from dataset_loading import Sound2MEGDataset
 from torch.utils.data import Dataset, DataLoader, random_split
 import gc
-import sys
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-sys.tracebacklimit = 0
 
 class SubjectLayer(nn.Module):
   def __init__(self):
@@ -49,6 +47,8 @@ class SpatialAttention(nn.Module):
     self.positions = self.positions['positions']
     self.x = torch.tensor(self.positions[:, 0]).to(device)
     self.y = torch.tensor(self.positions[:, 1]).to(device)
+    self.x = self.x/1.111 + 0.1
+    self.y = self.y/1.111 + 0.1
     self.cos_v = []
     self.sin_v = []
     self.cos = []
@@ -166,7 +166,7 @@ if embedding_type == 'mel':
 elif embedding_type == 'Wav2Vec':
   F = 1024
 dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/', embedding_type)
-training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(42))
+training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(32))
 Training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
 Validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
 BrainModule = Net('/expanse/projects/nsg/external_users/public/', F)
@@ -184,8 +184,7 @@ for i in range(100):
     optimizer.zero_grad()
     Z = BrainModule(MEG.to(device), Sub)
     Z = Z[:, :, :, 0]
-    loss = CLIP_loss(Z.float(), WAV.abs().float().to(device))
-    print(loss.item())
+    loss = CLIP_loss(Z.float(), WAV.float().to(device))
     loss.backward()
     loss_t = loss_t + loss.item()
     optimizer.step()
@@ -195,13 +194,41 @@ for i in range(100):
     with torch.no_grad():
       Z_val = BrainModule(MEG_val.to(device), Sub_val)
       Z_val = Z_val[:, :, :, 0]
-      loss = CLIP_loss(Z_val.float(), WAV_val.abs().float().to(device))
+      loss = CLIP_loss(Z_val.float(), WAV_val.float().to(device))
     loss_v = loss_v + loss.item()
   loss_val.append(loss_v/len(Validation_Data_Batches))
   gc.collect()
   torch.cuda.empty_cache()
 
-torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/epochs100seed42.pth')
-
 print(loss_train)
 print(loss_val)
+
+TestLoader = DataLoader(test_data, batch_size = 128)
+Z_test = []
+WAV_test = []
+for MEG_test_batch, WAV_test_batch, Sub_test_batch in TestLoader:
+  with torch.no_grad():
+    Z_test_batch = BrainModule(MEG_test_batch.to(device), Sub_test_batch)
+  Z_test.append(Z_test_batch[:, :, :, 0])
+  WAV_test.append(WAV_test_batch)
+
+L = len(test_data)
+Num_batches = len(TestLoader)
+last_Zbatch = Z_test[Num_batches-1]
+last_WAVbatch = WAV_test[Num_batches-1]
+Z_test = torch.reshape(torch.stack(Z_test[0:Num_batches-1]).to(device), ((Num_batches-1)*128, F, 360))
+Z_test = torch.cat((Z_test, last_Zbatch.to(device)), 0)
+WAV_test = torch.reshape(torch.stack(WAV_test[0:Num_batches-1]).to(device), ((Num_batches-1)*128, F, 360))
+WAV_test = torch.cat((WAV_test, last_WAVbatch.to(device)), 0)
+Z_test_row = torch.reshape(Z_test.float(), (L, -1))
+WAV_test_row = torch.reshape(WAV_test.float().to(device), (L, -1))
+Product = (torch.mm(Z_test_row, WAV_test_row.T)/(L*L)).to(device)
+
+Arguments = torch.argsort(Product, dim = 1)
+k = 0
+for i in range(L):
+  if Arguments[i, i] <= 10:
+    k = k+1
+print(k/L*100)
+
+torch.save(BrainModule.state_dict(), 'epochs100seed32.pth')
