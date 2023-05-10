@@ -224,11 +224,14 @@ Z_test_row = torch.reshape(Z_test.float(), (L, -1))
 WAV_test_row = torch.reshape(WAV_test.float().to(device), (L, -1))
 Product = (torch.mm(Z_test_row, WAV_test_row.T)/(L*L)).to(device)
 
-Arguments = torch.argsort(Product, dim = 1)
+softmax_product = torch.zeros(N, N).to(device)
+for j in range(N):
+  softmax_product[j] = nn.functional.softmax(Product[j, :], -1)
+
+Arguments = torch.argsort(softmax_product, dim = 1)
 k = 0
 for i in range(L):
-  if Arguments[i, i] <= 10:
+  if i in Arguments[i,:10]:
     k = k+1
 print(k/L*100)
-
 torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/arno/epochs100seed32.pth')
