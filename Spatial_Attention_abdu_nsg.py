@@ -174,10 +174,14 @@ BrainModule.to(device)
 optimizer = optim.Adam(BrainModule.parameters(), lr = 0.00003)
 loss_train = []
 loss_val = []
+training_accuracy = []
+validation_accuracy = []
 
-for i in range(100):
+for i in range(250):
   loss_t = 0
   loss_v = 0
+  train_acc = 0
+  val_acc = 0
   BrainModule.train()
   for MEG, WAV, Sub in Training_Data_Batches:
     Sub = Sub.tolist()
@@ -185,23 +189,57 @@ for i in range(100):
     Z = BrainModule(MEG.to(device), Sub)
     Z = Z[:, :, :, 0]
     loss = CLIP_loss(Z.float(), WAV.float().to(device))
+    if i%20==19:
+      N = Z.size(dim=0)
+      Z_row = torch.reshape(Z.float(), (N, -1)).to(device)
+      WAV_row = torch.reshape(WAV.float(), (N, -1)).to(device)
+      inner_product = (torch.mm(Z_row, torch.transpose(WAV_row, 1, 0))/(N*N)).to(device)
+      softm = torch.zeros(N, N).to(device)
+      for j in range(N):
+        softm[j] = nn.functional.softmax(inner_product[j, :], -1)
+      Arguments = torch.argsort(softm, dim = 1, descending = True)
+      k = 0
+      for j in range(N):
+        if j in Arguments[j, :10]:
+          k = k+1
+      train_acc = train_acc + (k/N*100)
     loss.backward()
     loss_t = loss_t + loss.item()
     optimizer.step()
   loss_train.append(loss_t/(len(Training_Data_Batches)))
+  if i%20 == 19:
+    training_accuracy.append(train_acc/len(Training_Data_Batches))
   BrainModule.eval()
   for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
     with torch.no_grad():
       Z_val = BrainModule(MEG_val.to(device), Sub_val)
       Z_val = Z_val[:, :, :, 0]
       loss = CLIP_loss(Z_val.float(), WAV_val.float().to(device))
+    if i%20==19:
+      N = Z_val.size(dim=0)
+      Z_row = torch.reshape(Z_val.float(), (N, -1)).to(device)
+      WAV_row = torch.reshape(WAV_val.float(), (N, -1)).to(device)
+      inner_product = (torch.mm(Z_row, torch.transpose(WAV_row, 1, 0))/(N*N)).to(device)
+      softm = torch.zeros(N, N).to(device)
+      for j in range(N):
+        softm[j] = nn.functional.softmax(inner_product[j, :], -1)
+      Arguments = torch.argsort(softm, dim = 1, descending = True)
+      k = 0
+      for j in range(N):
+        if j in Arguments[j, :10]:
+          k = k+1
+      val_acc = val_acc + (k/N*100)
     loss_v = loss_v + loss.item()
   loss_val.append(loss_v/len(Validation_Data_Batches))
+  if i%20 == 19:
+    validation_accuracy.append(val_acc/len(Validation_Data_Batches))
   gc.collect()
   torch.cuda.empty_cache()
 
 print(loss_train)
 print(loss_val)
+print(training_accuracy)
+print(validation_accuracy)
 
 TestLoader = DataLoader(test_data, batch_size = 128)
 Z_test = []
@@ -224,14 +262,15 @@ Z_test_row = torch.reshape(Z_test.float(), (L, -1))
 WAV_test_row = torch.reshape(WAV_test.float().to(device), (L, -1))
 Product = (torch.mm(Z_test_row, WAV_test_row.T)/(L*L)).to(device)
 
-softmax_product = torch.zeros(N, N).to(device)
-for j in range(N):
+softmax_product = torch.zeros(L, L).to(device)
+for j in range(L):
   softmax_product[j] = nn.functional.softmax(Product[j, :], -1)
 
-Arguments = torch.argsort(softmax_product, dim = 1)
+Arguments = torch.argsort(softmax_product, dim = 1, descending = True)
 k = 0
 for i in range(L):
   if i in Arguments[i,:10]:
     k = k+1
 print(k/L*100)
-torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/arno/epochs100seed32.pth')
+
+#torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/arno/epochs200seed32.pth')
