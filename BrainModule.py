@@ -13,10 +13,11 @@ class BrainModule(nn.Module):
     def __init__(self, F, inchans, outchans, K, montage, n_subjects=None):
         super().__init__()
         self.D2 = 320
+        self.outchans = outchans
         self.spatial_attention = self.SpatialAttention(inchans, outchans, K, montage[:,0], montage[:,1])
-        self.conv = nn.Conv2d(270, 270, 1, padding='same')
+        self.conv = nn.Conv2d(outchans, outchans, 1, padding='same')
         if n_subjects:
-            self.subject_layer = self.SubjectLayer(n_subjects=124)
+            self.subject_layer = self.SubjectLayer(n_subjects=124, outchans=outchans)
         self.conv_blocks = nn.Sequential(*[self.generate_conv_block(k) for k in range(5)]) # 5 conv blocks
         self.final_convs = nn.Sequential(
             nn.Conv2d(self.D2, self.D2*2, 1),
@@ -28,7 +29,7 @@ class BrainModule(nn.Module):
         kernel_size = (1,3)
         padding = 'same' # (p,0)
         return nn.Sequential(OrderedDict([
-            ('conv1', nn.Conv2d(270 if k==0 else self.D2, self.D2, kernel_size, dilation=pow(2,(2*k)%5), padding=padding)),
+            ('conv1', nn.Conv2d(self.outchans if k==0 else self.D2, self.D2, kernel_size, dilation=pow(2,(2*k)%5), padding=padding)),
             ('bn1',   nn.BatchNorm2d(self.D2)), 
             ('gelu1', nn.GELU()),
             ('conv2', nn.Conv2d(self.D2, self.D2, kernel_size, dilation=pow(2,(2*k+1)%5), padding=padding)),
@@ -59,9 +60,9 @@ class BrainModule(nn.Module):
         return x.squeeze(2)
     
     class SubjectLayer(nn.Module):
-        def __init__(self, n_subjects):
+        def __init__(self, outchans, n_subjects):
             super().__init__()
-            self.subj_layers = nn.Sequential(*[nn.Conv2d(270, 270, 1, padding='same') for i in range(n_subjects)])
+            self.subj_layers = nn.Sequential(*[nn.Conv2d(outchans, outchans, 1, padding='same') for i in range(n_subjects)])
 
         def forward(self, x, subj_indices):
             for i in range(x.shape[0]):
@@ -104,10 +105,3 @@ class BrainModule(nn.Module):
                                    # matmul dim expansion logic: https://pytorch.org/docs/stable/generated/torch.matmul.html
             print(time.time()-start)
             return X
-
-inchans = 273
-outchans = 270
-brain_module = BrainModule(320, inchans, outchans, 32, torch.randn(inchans, 2)).to(device=device)
-print(brain_module)
-# brain_module(torch.randn(5, inchans, 360, device=device), list(range(5))).shape
-brain_module(torch.randn(5, inchans, 360, device=device)).shape
