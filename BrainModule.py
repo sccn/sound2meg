@@ -79,7 +79,7 @@ class BrainModule(nn.Module):
             self.y = y.to(device=device)
             self.compute_cos_sin()           
             # trainable parameter:
-            self.z = Parameter(torch.randn(self.outchans, K, K, dtype = torch.cfloat,device=device)) # each output channel has its own KxK z matrix
+            self.z = Parameter(torch.randn(self.outchans, K*K, dtype = torch.cfloat,device=device)) # each output channel has its own KxK z matrix
             self.z.requires_grad = True
             
         def compute_cos_sin(self):
@@ -87,21 +87,16 @@ class BrainModule(nn.Module):
             ll = torch.arange(self.K, device=device)
             cos_fun = lambda k, l, x, y: torch.cos(2*torch.pi*(k*x + l*y))
             sin_fun = lambda k, l, x, y: torch.sin(2*torch.pi*(k*x + l*y))
-            self.cos_matrix = [cos_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]
-            self.sin_matrix = [sin_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]
+            self.cos_matrix = torch.stack([cos_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]).reshape(self.inchans,-1)
+            self.sin_matrix = torch.stack([sin_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]).reshape(self.inchans,-1)
 
-        def forward(self, X):
-            start = time.time()
-            a = torch.zeros(self.outchans, self.inchans, device=device)
-            for j in range(self.outchans):
-                for i in range(self.inchans):
-                    a[j,i] = torch.sum(self.z[j].real * self.cos_matrix[i] + self.z[j].imag * self.sin_matrix[i])
-                    # Question: do I need to divide this with square root of KxK? to stablize gradient as with self-attention?
+        def forward(self, X):            
+            a = torch.matmul(self.z.real, self.cos_matrix.T) + torch.matmul(self.z.imag, self.sin_matrix.T)
+                                # Question: divide this with square root of KxK? to stablize gradient as with self-attention?
             a = F.softmax(a, dim=1) # softmax over all input chan location for each output chan
                                             # outchans x  inchans
                 
             # X: N x 273 x 360            
             X = torch.matmul(a, X) # N x outchans x 360 (time)
                                    # matmul dim expansion logic: https://pytorch.org/docs/stable/generated/torch.matmul.html
-            print(time.time()-start)
             return X
