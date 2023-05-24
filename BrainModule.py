@@ -1,0 +1,113 @@
+import torch
+import torchvision.models as torchmodels
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn.parameter import Parameter
+import numpy as np
+from collections import OrderedDict
+import time
+
+device = 'cuda'
+
+class BrainModule(nn.Module):   
+    def __init__(self, F, inchans, outchans, K, montage, n_subjects=None):
+        super().__init__()
+        self.D2 = 320
+        self.spatial_attention = self.SpatialAttention(inchans, outchans, K, montage[:,0], montage[:,1])
+        self.conv = nn.Conv2d(270, 270, 1, padding='same')
+        if n_subjects:
+            self.subject_layer = self.SubjectLayer(n_subjects=124)
+        self.conv_blocks = nn.Sequential(*[self.generate_conv_block(k) for k in range(5)]) # 5 conv blocks
+        self.final_convs = nn.Sequential(
+            nn.Conv2d(self.D2, self.D2*2, 1),
+            nn.GELU(),
+            nn.Conv2d(self.D2*2, F, 1)
+        )
+    
+    def generate_conv_block(self, k):
+        kernel_size = (1,3)
+        padding = 'same' # (p,0)
+        return nn.Sequential(OrderedDict([
+            ('conv1', nn.Conv2d(270 if k==0 else self.D2, self.D2, kernel_size, dilation=pow(2,(2*k)%5), padding=padding)),
+            ('bn1',   nn.BatchNorm2d(self.D2)), 
+            ('gelu1', nn.GELU()),
+            ('conv2', nn.Conv2d(self.D2, self.D2, kernel_size, dilation=pow(2,(2*k+1)%5), padding=padding)),
+            ('bn2',   nn.BatchNorm2d(self.D2)),
+            ('gelu2', nn.GELU()),
+            ('conv3', nn.Conv2d(self.D2, self.D2*2, kernel_size, padding=padding)),
+            ('glu',   nn.GLU(dim=1))
+        ]))
+
+    def forward(self, x, subj_indices=None):
+        x = self.spatial_attention(x).unsqueeze(2) # add dummy dimension at the end
+        x = self.conv(x)
+        if subj_indices:
+            x = self.subject_layer(x, subj_indices)
+        
+        for k in range(len(self.conv_blocks)):
+            if k == 0:
+                x = self.conv_blocks[k](x)
+            else:
+                x_copy = x
+                for name, module in self.conv_blocks[k].named_modules():
+                    if name == 'conv2' or name == 'conv3':
+                        x = x_copy + x # residual skip connection for the first two convs
+                        x_copy = x.clone() # is it deep copy?
+                    x = module(x)
+        x = self.final_convs(x)
+        
+        return x.squeeze(2)
+    
+    class SubjectLayer(nn.Module):
+        def __init__(self, n_subjects):
+            super().__init__()
+            self.subj_layers = nn.Sequential(*[nn.Conv2d(270, 270, 1, padding='same') for i in range(n_subjects)])
+
+        def forward(self, x, subj_indices):
+            for i in range(x.shape[0]):
+                x[i] = self.subj_layers[subj_indices[i]](x[i])
+            return x
+        
+    class SpatialAttention(nn.Module):
+        def __init__(self,in_channels, out_channels, K, x, y):
+            super().__init__()
+            self.outchans = out_channels
+            self.inchans = in_channels
+            self.K = K
+            self.x = x.to(device=device)
+            self.y = y.to(device=device)
+            self.compute_cos_sin()           
+            # trainable parameter:
+            self.z = Parameter(torch.randn(self.outchans, K, K, dtype = torch.cfloat,device=device)) # each output channel has its own KxK z matrix
+            self.z.requires_grad = True
+            
+        def compute_cos_sin(self):
+            kk = torch.arange(self.K, device=device)
+            ll = torch.arange(self.K, device=device)
+            cos_fun = lambda k, l, x, y: torch.cos(2*torch.pi*(k*x + l*y))
+            sin_fun = lambda k, l, x, y: torch.sin(2*torch.pi*(k*x + l*y))
+            self.cos_matrix = [cos_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]
+            self.sin_matrix = [sin_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]
+
+        def forward(self, X):
+            start = time.time()
+            a = torch.zeros(self.outchans, self.inchans, device=device)
+            for j in range(self.outchans):
+                for i in range(self.inchans):
+                    a[j,i] = torch.sum(self.z[j].real * self.cos_matrix[i] + self.z[j].imag * self.sin_matrix[i])
+                    # Question: do I need to divide this with square root of KxK? to stablize gradient as with self-attention?
+            a = F.softmax(a, dim=1) # softmax over all input chan location for each output chan
+                                            # outchans x  inchans
+                
+            # X: N x 273 x 360            
+            X = torch.matmul(a, X) # N x outchans x 360 (time)
+                                   # matmul dim expansion logic: https://pytorch.org/docs/stable/generated/torch.matmul.html
+            print(time.time()-start)
+            return X
+
+inchans = 273
+outchans = 270
+brain_module = BrainModule(320, inchans, outchans, 32, torch.randn(inchans, 2)).to(device=device)
+print(brain_module)
+# brain_module(torch.randn(5, inchans, 360, device=device), list(range(5))).shape
+brain_module(torch.randn(5, inchans, 360, device=device)).shape
