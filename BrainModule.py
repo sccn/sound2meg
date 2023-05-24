@@ -83,8 +83,8 @@ class BrainModule(nn.Module):
             self.z.requires_grad = True
             
         def compute_cos_sin(self):
-            kk = torch.arange(self.K, device=device)
-            ll = torch.arange(self.K, device=device)
+            kk = torch.arange(1, self.K+1, device=device)
+            ll = torch.arange(1, self.K+1, device=device)
             cos_fun = lambda k, l, x, y: torch.cos(2*torch.pi*(k*x + l*y))
             sin_fun = lambda k, l, x, y: torch.sin(2*torch.pi*(k*x + l*y))
             self.cos_matrix = torch.stack([cos_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]).reshape(self.inchans,-1)
