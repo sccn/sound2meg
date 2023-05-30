@@ -13,6 +13,10 @@ Wav2vec model and paper
 Code on Colab
 https://colab.research.google.com/github/sccn/sound2meg/blob/main/Spatial_Attention.ipynb
 
+# Data
+
+https://data.donders.ru.nl/collections/di/dccn/DSC_3011220.01_297
+
 # Other papers
 
 ## Mapping brain data (fMRI) with latent space of GPT-2 - we could do that with EEG and MEG
