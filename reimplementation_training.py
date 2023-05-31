@@ -21,110 +21,20 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import gc
 import numpy as np
 from collections import OrderedDict
+from libs import BrainModule as Net
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-class Net(nn.Module):   
-  def __init__(self, F_out, inchans, outchans, K, montage, n_subjects=None):
-    super().__init__()
-    self.D2 = 320
-    self.outchans = outchans
-    self.spatial_attention = SpatialAttention(inchans, outchans, K, montage[:,0], montage[:,1])
-    self.conv = nn.Conv2d(outchans, outchans, 1, padding='same')
-    if n_subjects:
-      self.subject_layer = SubjectLayer(outchans, n_subjects)
-    self.conv_blocks = nn.Sequential(*[self.generate_conv_block(k) for k in range(5)]) # 5 conv blocks
-    self.final_convs = nn.Sequential(
-      nn.Conv2d(self.D2, self.D2*2, 1),
-      nn.GELU(),
-      nn.Conv2d(self.D2*2, F_out, 1)
-    )
-    
-  def generate_conv_block(self, k):
-    kernel_size = (1,3)
-    padding = 'same' # (p,0)
-    return nn.Sequential(OrderedDict([
-      ('conv1', nn.Conv2d(self.outchans if k==0 else self.D2, self.D2, kernel_size, dilation=pow(2,(2*k)%5), padding=padding)),
-      ('bn1',   nn.BatchNorm2d(self.D2)), 
-      ('gelu1', nn.GELU()),
-      ('conv2', nn.Conv2d(self.D2, self.D2, kernel_size, dilation=pow(2,(2*k+1)%5), padding=padding)),
-      ('bn2',   nn.BatchNorm2d(self.D2)),
-      ('gelu2', nn.GELU()),
-      ('conv3', nn.Conv2d(self.D2, self.D2*2, kernel_size, padding=padding)),
-      ('glu',   nn.GLU(dim=1))
-    ]))
-
-  def forward(self, x, subj_indices=None):
-    x = self.spatial_attention(x).unsqueeze(2) # add dummy dimension at the end
-    x = self.conv(x)
-    x = self.subject_layer(x, subj_indices)
-        
-    for k in range(len(self.conv_blocks)):
-      if k == 0:
-        x = self.conv_blocks[k](x)
-      else:
-        x_copy = x
-        for name, module in self.conv_blocks[k].named_modules():
-          if name == 'conv2' or name == 'conv3':
-            x = x_copy + x # residual skip connection for the first two convs
-            x_copy = x.clone() # is it deep copy?
-          x = module(x)
-    x = self.final_convs(x)
-        
-    return x.squeeze(2)
-    
-class SubjectLayer(nn.Module):
-  def __init__(self, outchans, n_subjects):
-    super().__init__()
-    self.subj_layers = nn.Sequential(*[nn.Conv2d(outchans, outchans, 1, padding='same') for i in range(n_subjects)])
-
-  def forward(self, x, subj_indices):
-    for i in range(x.shape[0]):
-      x[i] = self.subj_layers[subj_indices[i]](x[i].clone())
-    return x
-        
-class SpatialAttention(nn.Module):
-  def __init__(self,in_channels, out_channels, K, x, y):
-    super().__init__()
-    self.outchans = out_channels
-    self.inchans = in_channels
-    self.K = K
-    self.x = x.to(device=device)
-    self.y = y.to(device=device)
-    self.compute_cos_sin()           
-    # trainable parameter:
-    self.z = Parameter(torch.randn(self.outchans, K*K, dtype = torch.cfloat,device=device)/(32*32)) # each output channel has its own KxK z matrix
-    self.z.requires_grad = True
-            
-  def compute_cos_sin(self):
-    kk = torch.arange(1, self.K+1, device=device)
-    ll = torch.arange(1, self.K+1, device=device)
-    cos_fun = lambda k, l, x, y: torch.cos(2*torch.pi*(k*x + l*y))
-    sin_fun = lambda k, l, x, y: torch.sin(2*torch.pi*(k*x + l*y))
-    self.cos_matrix = torch.stack([cos_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]).reshape(self.inchans,-1).float()
-    self.sin_matrix = torch.stack([sin_fun(kk[None,:], ll[:,None], x, y) for x, y in zip(self.x, self.y)]).reshape(self.inchans,-1).float()
-
-  def forward(self, X):            
-    a = torch.matmul(self.z.real, self.cos_matrix.T) + torch.matmul(self.z.imag, self.sin_matrix.T)
-    # Question: divide this with square root of KxK? to stablize gradient as with self-attention?
-    a = F.softmax(a, dim=1) # softmax over all input chan location for each output chan
-                                            # outchans x  inchans
-                
-            # X: N x 273 x 360            
-    X = torch.matmul(a, X) # N x outchans x 360 (time)
-                                   # matmul dim expansion logic: https://pytorch.org/docs/stable/generated/torch.matmul.html
-    return X
           
-def CLIP_loss(Z, Y):
+def CLIP_loss(z, y):
     '''
     New loss using cross entropy implementation
     '''
-    N = Y.size(dim = 0) # batch size
-    Z_row = torch.reshape(Z, (N, -1)) # flatten to be N x F
-    Y_row = torch.reshape(Y, (N, -1)) # flatten to be N x F
-    inner_product = (torch.mm(Z_row, Y_row.T)/(N*N)).to(device) # N x N. The normalization?
+    n = y.size(dim = 0) # batch size
+    z_row = torch.reshape(z, (n, -1)) # flatten to be N x F
+    y_row = torch.reshape(y, (n, -1)) # flatten to be N x F
+    inner_product = (torch.mm(z_row, y_row.T)/(n*n)).to(device) # N x N. The normalization?
 
-    target = torch.arange(N, device=device)
+    target = torch.arange(n, device=device)
     loss_brain = torch.nn.functional.cross_entropy(inner_product, target)
     loss_sound = torch.nn.functional.cross_entropy(inner_product.T, target)
     loss = ((loss_brain + loss_sound)/2).to(device)
@@ -136,15 +46,15 @@ positions = torch.tensor(positions['positions'])
 
 embedding_type = 'mel'
 if embedding_type == 'mel':
-  F_out = 120
+  f_out = 120
 elif embedding_type == 'Wav2Vec':
-  F_out = 1024
+  f_out = 1024
 dataset = Sound2MEGDataset('/expanse/projects/nsg/external_users/public/', embedding_type)
 training_data, validation_data, test_data = random_split(dataset, [11497, 3285, 1642], generator=torch.Generator().manual_seed(32))
-Training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
-Validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
+training_Data_Batches = DataLoader(training_data, batch_size = 128, shuffle = True)
+validation_Data_Batches = DataLoader(validation_data, batch_size = 128, shuffle = True)
 
-BrainModule = Net(F_out = F_out, inchans = 273, outchans = 270, K = 32, montage = positions, n_subjects = 124)
+BrainModule = Net(f_out = f_out, inchans = 273, outchans = 270, K = 32, montage = positions, n_subjects = 124)
 BrainModule.to(device)
 optimizer = optim.Adam(BrainModule.parameters(), lr = 0.00003)
 loss_train = []
@@ -158,54 +68,54 @@ for i in range(100):
   train_acc = 0
   val_acc = 0
   BrainModule.train()
-  for MEG, WAV, Sub in Training_Data_Batches:
-    Sub = Sub.tolist()
+  for meg, wav, sub in training_Data_Batches:
+    sub = sub.tolist()
     optimizer.zero_grad()
-    Z = BrainModule(MEG.to(device).float(), Sub)
-    loss = CLIP_loss(Z.float(), WAV.float().to(device))
+    z = BrainModule(meg.to(device).float(), sub)
+    loss = CLIP_loss(z.float(), wav.float().to(device))
     if i%20==19:
-      N = Z.size(dim=0)
-      Z_row = torch.reshape(Z.float(), (N, -1)).to(device)
-      WAV_row = torch.reshape(WAV.float(), (N, -1)).to(device)
-      inner_product = (torch.mm(Z_row, torch.transpose(WAV_row, 1, 0))/(N*N)).to(device)
-      softm = torch.zeros(N, N).to(device)
-      for j in range(N):
+      n = z.size(dim=0)
+      z_row = torch.reshape(z.float(), (n, -1)).to(device)
+      wav_row = torch.reshape(wav.float(), (n, -1)).to(device)
+      inner_product = (torch.mm(z_row, torch.transpose(wav_row, 1, 0))/(N*N)).to(device)
+      softm = torch.zeros(n, n).to(device)
+      for j in range(n):
         softm[j] = nn.functional.softmax(inner_product[j, :], -1)
-      Arguments = torch.argsort(softm, dim = 1, descending = True)
+      arguments = torch.argsort(softm, dim = 1, descending = True)
       k = 0
-      for j in range(N):
-        if j in Arguments[j, :10]:
+      for j in range(n):
+        if j in arguments[j, :10]:
           k = k+1
       train_acc = train_acc + (k/N*100)
     loss.backward()
     loss_t = loss_t + loss.item()
     optimizer.step()
-  loss_train.append(loss_t/(len(Training_Data_Batches)))
+  loss_train.append(loss_t/(len(training_Data_Batches)))
   if i%20 == 19:
-    training_accuracy.append(train_acc/len(Training_Data_Batches))
+    training_accuracy.append(train_acc/len(training_Data_Batches))
   BrainModule.eval()
-  for MEG_val, WAV_val, Sub_val in Validation_Data_Batches:
+  for meg_val, wav_val, sub_val in validation_Data_Batches:
     with torch.no_grad():
-      Z_val = BrainModule(MEG_val.to(device).float(), Sub_val)
-      loss = CLIP_loss(Z_val.float(), WAV_val.float().to(device))
+      z_val = BrainModule(meg_val.to(device).float(), sub_val)
+      loss = CLIP_loss(z_val.float(), wav_val.float().to(device))
     if i%20==19:
-      N = Z_val.size(dim=0)
-      Z_row = torch.reshape(Z_val.float(), (N, -1)).to(device)
-      WAV_row = torch.reshape(WAV_val.float(), (N, -1)).to(device)
-      inner_product = (torch.mm(Z_row, torch.transpose(WAV_row, 1, 0))/(N*N)).to(device)
-      softm = torch.zeros(N, N).to(device)
-      for j in range(N):
+      z = z_val.size(dim=0)
+      z_row = torch.reshape(z_val.float(), (n, -1)).to(device)
+      wav_row = torch.reshape(wav_val.float(), (n, -1)).to(device)
+      inner_product = (torch.mm(z_row, torch.transpose(wav_row, 1, 0))/(n*n)).to(device)
+      softm = torch.zeros(n, n).to(device)
+      for j in range(n):
         softm[j] = nn.functional.softmax(inner_product[j, :], -1)
-      Arguments = torch.argsort(softm, dim = 1, descending = True)
+      arguments = torch.argsort(softm, dim = 1, descending = True)
       k = 0
-      for j in range(N):
-        if j in Arguments[j, :10]:
+      for j in range(n):
+        if j in arguments[j, :10]:
           k = k+1
       val_acc = val_acc + (k/N*100)
     loss_v = loss_v + loss.item()
-  loss_val.append(loss_v/len(Validation_Data_Batches))
+  loss_val.append(loss_v/len(validation_Data_Batches))
   if i%20 == 19:
-    validation_accuracy.append(val_acc/len(Validation_Data_Batches))
+    validation_accuracy.append(val_acc/len(validation_Data_Batches))
   gc.collect()
   torch.cuda.empty_cache()
 
@@ -214,35 +124,35 @@ print(loss_val)
 print(training_accuracy)
 print(validation_accuracy)
 
-TestLoader = DataLoader(test_data, batch_size = 128)
-Z_test = []
-WAV_test = []
-for MEG_test_batch, WAV_test_batch, Sub_test_batch in TestLoader:
+testLoader = DataLoader(test_data, batch_size = 128)
+z_test = []
+wav_test = []
+for meg_test_batch, wav_test_batch, sub_test_batch in testLoader:
   with torch.no_grad():
-    Z_test_batch = BrainModule(MEG_test_batch.float().to(device), Sub_test_batch)
-  Z_test.append(Z_test_batch)
-  WAV_test.append(WAV_test_batch)
+    z_test_batch = BrainModule(meg_test_batch.float().to(device), sub_test_batch)
+  z_test.append(z_test_batch)
+  wav_test.append(wav_test_batch)
 
-L = len(test_data)
-Num_batches = len(TestLoader)
-last_Zbatch = Z_test[Num_batches-1]
-last_WAVbatch = WAV_test[Num_batches-1]
-Z_test = torch.reshape(torch.stack(Z_test[0:Num_batches-1]).to(device), ((Num_batches-1)*128, F_out, 360))
-Z_test = torch.cat((Z_test, last_Zbatch.to(device)), 0)
-WAV_test = torch.reshape(torch.stack(WAV_test[0:Num_batches-1]).to(device), ((Num_batches-1)*128, F_out, 360))
-WAV_test = torch.cat((WAV_test, last_WAVbatch.to(device)), 0)
-Z_test_row = torch.reshape(Z_test.float(), (L, -1))
-WAV_test_row = torch.reshape(WAV_test.float().to(device), (L, -1))
-Product = (torch.mm(Z_test_row, WAV_test_row.T)/(L*L)).to(device)
+l = len(test_data)
+num_batches = len(testLoader)
+last_Zbatch = z_test[num_batches-1]
+last_WAVbatch = wav_test[num_batches-1]
+z_test = torch.reshape(torch.stack(z_test[0:Num_batches-1]).to(device), ((num_batches-1)*128, f_out, 360))
+z_test = torch.cat((z_test, last_Zbatch.to(device)), 0)
+wav_test = torch.reshape(torch.stack(wav_test[0:num_batches-1]).to(device), ((num_batches-1)*128, f_out, 360))
+wav_test = torch.cat((wav_test, last_WAVbatch.to(device)), 0)
+z_test_row = torch.reshape(z_test.float(), (L, -1))
+wav_test_row = torch.reshape(wav_test.float().to(device), (L, -1))
+product = (torch.mm(Z_test_row, WAV_test_row.T)/(L*L)).to(device)
 
 softmax_product = torch.zeros(L, L).to(device)
 for j in range(L):
-  softmax_product[j] = nn.functional.softmax(Product[j, :], -1)
+  softmax_product[j] = nn.functional.softmax(product[j, :], -1)
 
-Arguments = torch.argsort(softmax_product, dim = 1, descending = True)
+arguments = torch.argsort(softmax_product, dim = 1, descending = True)
 k = 0
-for i in range(L):
-  if i in Arguments[i,:10]:
+for i in range(l):
+  if i in arguments[i,:10]:
     k = k+1
 print(k/L*100)
 
