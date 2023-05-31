@@ -10,7 +10,7 @@ import time
 device = 'cuda'
 
 class BrainModule(nn.Module):   
-  def __init__(self, F_out, inchans, outchans, K, montage, n_subjects=None):
+  def __init__(self, f_out, inchans, outchans, K, montage, n_subjects=None):
     super().__init__()
     self.D2 = 320
     self.outchans = outchans
@@ -22,7 +22,7 @@ class BrainModule(nn.Module):
     self.final_convs = nn.Sequential(
       nn.Conv2d(self.D2, self.D2*2, 1),
       nn.GELU(),
-      nn.Conv2d(self.D2*2, F_out, 1)
+      nn.Conv2d(self.D2*2, f_out, 1)
     )
     
   def generate_conv_block(self, k):
