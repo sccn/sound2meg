@@ -154,6 +154,6 @@ k = 0
 for i in range(l):
   if i in arguments[i,:10]:
     k = k+1
-print(k/L*100)
+print(k/l*100)
 
 #torch.save(BrainModule.state_dict(), '/expanse/projects/nsg/external_users/public/arno/epochs200seed32.pth')
