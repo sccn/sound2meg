@@ -38,7 +38,7 @@ loader_train = DataLoader(train_data, batch_size=batch_size, shuffle=True, colla
 loader_val = DataLoader(val_data, batch_size=batch_size, collate_fn = collate_batch)
 loader_test = DataLoader(test_data, batch_size=batch_size, collate_fn = collate_batch)
 
-for s in range(5):
+for s in range(10):
     model = run_experiment(s, loader_train, loader_val, loader_test, 15)
     print('Next seed loading...')
 

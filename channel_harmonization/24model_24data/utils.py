@@ -104,8 +104,9 @@ class SpatialAttention(nn.Module):
     a_24 = torch.matmul(self.z.real, cos_mat24.T) + torch.matmul(self.z.imag, sin_mat24.T)
     a_128 = torch.matmul(self.z.real, cos_mat128.T) + torch.matmul(self.z.imag, sin_mat128.T)
     sol = []
-    x_drop = random.uniform(0, 1)
-    y_drop = random.uniform(0, 1)            
+    index = random.randint(0, 22)
+    x_drop = positions24[index,0]
+    y_drop = positions24[index,1]            
     for eeg in X:
         eeg = eeg.to(device=device, dtype=torch.float32)
         if eeg.shape[0] == 23:
