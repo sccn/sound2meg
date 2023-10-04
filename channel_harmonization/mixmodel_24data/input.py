@@ -9,12 +9,12 @@ feature = 'raw'
 one_channel = False
 
 role = 'train'
-train_data = load_data_constant(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
+train_data = load_data_mixed(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
 print(f'X_train shape: {len(train_data)}, {train_data[0][0].shape}')
 #print(f'Y_train shape: {len(train_data)}, {train_data[0][1].shape}')
 
 role = 'val'
-val_data = load_data_constant(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
+val_data = load_data_mixed(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
 print(f'X_val shape: {len(val_data)}, {val_data[0][0].shape}')
 #print(f'Y_val shape: {len(val_data)}, {val_data[0][1].shape}')
 

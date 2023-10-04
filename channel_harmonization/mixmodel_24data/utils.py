@@ -104,8 +104,9 @@ class SpatialAttention(nn.Module):
     a_24 = torch.matmul(self.z.real, cos_mat24.T) + torch.matmul(self.z.imag, sin_mat24.T)
     a_128 = torch.matmul(self.z.real, cos_mat128.T) + torch.matmul(self.z.imag, sin_mat128.T)
     sol = []   
-    x_drop = random.uniform(0, 1)
-    y_drop = random.uniform(0, 1)          
+    index = random.randint(0, 22)
+    x_drop = positions24[index,0]
+    y_drop = positions24[index,1]          
     for eeg in X:
         eeg = eeg.to(device=device, dtype=torch.float32)
         if eeg.shape[0] == 23:
@@ -150,6 +151,7 @@ class EEGDataset(Dataset):
     def __len__(self):
         return len(self.y)
 
+
 class EEGDataset_Constant(Dataset):
     '''
     Custom Dataset object for PyTorch to load the dataset
@@ -163,17 +165,85 @@ class EEGDataset_Constant(Dataset):
         self.val = val
 
     def __getitem__(self,key):
-        if key%2 == 0:
-            return (np.transpose(self.x[key, :, [22, 9, 33, 24, 11, 124, 122, 29, 6, 111, 45, 36, 104, 108, 42, 55, 93, 58, 52, 62, 92, 96, 70]], (1, 0, 2)), self.y[key])
-        else:
-            return (self.x[key], self.y[key])
+        return (self.x[key], self.y[key])
           
     def __len__(self):
         return len(self.y)
+    
+class EEGDatasetMixed(Dataset):
+    '''
+    Custom Dataset object for PyTorch to load the dataset
+    '''
+    def __init__(self, x:list, y:list, train, val):
+        super(EEGDataset).__init__()
+        assert len(x) == len(y)
+        self.x = x
+        self.y = [y[i][0] for i in range(len(y))]
+        self.train = train
+        self.val = val
 
-
-
+    def __getitem__(self,key):
+        return (self.x[key], self.y[key])
+          
+    def __len__(self):
+        return len(self.y)
+    
 def load_data(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
+    """
+    Load dataset
+    :param  
+        path: Filepath to the dataset
+        role: Role of the dataset. Can be "train", "val", or "test"
+        winLength: Length of time window. Can be 2 or 15
+        numChan: Number of channels. Can be 24 or 128
+        srate: Sampling rate. Supporting 126Hz
+        feature: Input feature. Can be "raw", "spectral", or "topo"
+        one_channel: Where input has 1 or 3 channel in depth dimension. Matters when load topo data as number of input channels 
+                are different from original's
+        version: Any additional information of the datafile. Will be appended to the file name at the end
+    """
+    transform = T.Compose([
+        T.ToTensor()
+    ])
+    if version:
+        f = h5py.File(path + "child_mind_abdu/" + f"child_mind_x_{role}_{winLength}s_24chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + "child_mind_abdu/" + f"child_mind_x_{role}_{winLength}s_24chan_{feature}.mat", 'r')
+    x24 = f[f'X_{role}']    
+    if version:
+        f = h5py.File(path + "child_mind_abdu128/" + f"child_mind_x_{role}_{winLength}s_128chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + "child_mind_abdu128/" + f"child_mind_x_{role}_{winLength}s_128chan_{feature}.mat", 'r')
+    x128 = f[f'X_{role}']
+    if feature == 'raw':
+        x24 = np.transpose(x24,(0,2,1))
+        x24 = np.reshape(x24,(-1,1,24,winLength*srate))
+        x128 = np.transpose(x128,(0,2,1))
+        x128 = np.reshape(x128,(-1,1,128,winLength*srate))
+    elif feature == 'topo':
+        if one_channel:
+            samples = []
+            for i in range(x.shape[0]):
+                image = x[i]
+                b, g, r = image[0,:, :], image[1,:, :], image[2,:, :]
+                concat = np.concatenate((b,g,r), axis=1)
+                samples.append(concat)
+            x = np.stack(samples)
+            x = np.reshape(x,(-1,1,x.shape[1],x.shape[2]))
+    
+    if version:
+        f = h5py.File(path + "child_mind_abdu/" + f"child_mind_y_{role}_{winLength}s_24chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + "child_mind_abdu/" + f"child_mind_y_{role}_{winLength}s_24chan_{feature}.mat", 'r')
+    y24 = f[f'Y_{role}']
+    if version:
+        f = h5py.File(path + "child_mind_abdu128/" + f"child_mind_y_{role}_{winLength}s_128chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + "child_mind_abdu128/" + f"child_mind_y_{role}_{winLength}s_128chan_{feature}.mat", 'r')
+    y128 = f[f'Y_{role}']
+    return EEGDataset(x24, y24, x128, y128, role=='train', role=='val')
+
+def load_data_constant(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
     """
     Load dataset
     :param  
@@ -217,10 +287,9 @@ def load_data(path, role, winLength, numChan, srate, feature, one_channel=False,
         f = h5py.File(path + f"child_mind_y_{role}_{winLength}s_128chan_{feature}.mat", 'r')
     y = f[f'Y_{role}']
    
-    return EEGDataset(x, y, role=='train', role=='val')
+    return EEGDataset_Constant(x, y, role=='train', role=='val')
 
-
-def load_data_constant(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
+def load_data_mixed(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
     """
     Load dataset
     :param  
@@ -261,10 +330,61 @@ def load_data_constant(path, role, winLength, numChan, srate, feature, one_chann
     else:
         f = h5py.File(path + f"child_mind_y_{role}_{winLength}s_{numChan}chan_{feature}.mat", 'r')
     y = f[f'Y_{role}']
-   
-    return EEGDataset_Constant(x, y, role=='train', role=='val')
+    
+    chan_128_X, chan_128_Y, chan_23_X, chan_23_Y = data_subsampling(x, y)
+    
+    X_mixed = chan_128_X
+    X_mixed.extend(chan_23_X)
+    Y_mixed = chan_128_Y
+    Y_mixed.extend(chan_23_Y)
+    
+    return EEGDatasetMixed(X_mixed, Y_mixed, role=='train', role=='val')
 
 
+def get_subjects_start_indices(labels):
+    if set(np.unique(labels)) != {0, 1}:
+        raise ValueError('Not binary classes 0 - 1')
+    cur_label = labels[0]
+    subject_start_indices = {"0": [], "1": []}
+    subject_start_indices[str(int(cur_label))].append(0)
+    for i in range(1,len(labels)):
+        if labels[i] == cur_label:
+            continue
+        else:
+            subject_start_indices[str(int(labels[i]))].append(i)
+            cur_label = labels[i]
+    return subject_start_indices
+
+def data_subsampling(X, Y):
+    subject_start_indices = get_subjects_start_indices(Y)
+    min_classsize = np.min([len(subject_start_indices['0']), len(subject_start_indices['1'])])
+    classA_start_indices = np.array(subject_start_indices['0'][:min_classsize])
+    classB_start_indices = np.array(subject_start_indices['1'][:min_classsize])
+    min_subj_nsample = np.min([np.min(np.abs(classA_start_indices-classB_start_indices)), np.min(np.abs(classB_start_indices-classA_start_indices))])
+    
+    half_size = int(min_classsize/2)
+    chan_128_X = []
+    chan_23_X = []
+    chan_128_Y = []
+    chan_23_Y = []
+    
+    sub_chan_indices = [22, 9, 33, 24, 11, 124, 122, 29, 6, 111, 45, 36, 104, 108, 42, 55, 93, 58, 52, 62, 92, 96, 70]
+    for i in range(half_size):
+        chan_128_Y.extend(Y[classA_start_indices[i]:classA_start_indices[i]+min_subj_nsample])
+        chan_23_Y.extend(Y[classA_start_indices[i+half_size]:classA_start_indices[i+half_size]+min_subj_nsample])
+        chan_128_Y.extend(Y[classB_start_indices[i]:classB_start_indices[i]+min_subj_nsample])
+        chan_23_Y.extend(Y[classB_start_indices[i+half_size]:classB_start_indices[i+half_size]+min_subj_nsample])
+
+        chan_128_X.extend(X[classA_start_indices[i]:classA_start_indices[i]+min_subj_nsample])
+        chan_23_X.extend(X[classA_start_indices[i+half_size]:classA_start_indices[i+half_size]+min_subj_nsample][:,:,sub_chan_indices,:])
+        chan_128_X.extend(X[classB_start_indices[i]:classB_start_indices[i]+min_subj_nsample])
+        chan_23_X.extend(X[classB_start_indices[i+half_size]:classB_start_indices[i+half_size]+min_subj_nsample][:,:,sub_chan_indices,:])
+    
+    if np.diff(np.unique(chan_128_Y, return_counts=True)[1]) != 0 or np.diff(np.unique(chan_23_Y, return_counts=True)[1]) != 0:
+        raise ValueError('Class still unbalanced')
+        
+    return chan_128_X, chan_128_Y, chan_23_X, chan_23_Y
+    
 def create_original_model(feature):
     if feature == 'raw':
         model = nn.Sequential(

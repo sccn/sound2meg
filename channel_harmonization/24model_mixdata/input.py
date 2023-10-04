@@ -19,7 +19,7 @@ print(f'X_val shape: {len(val_data)}, {val_data[0][0].shape}')
 #print(f'Y_val shape: {len(val_data)}, {val_data[0][1].shape}')
 
 role = 'test'
-test_data = load_data_constant(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
+test_data = load_data_mixed(path + "child_mind_abdu128/", role, winLength, numChan, srate, feature, one_channel)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
