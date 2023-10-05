@@ -168,7 +168,26 @@ class EEGDatasetMixed(Dataset):
           
     def __len__(self):
         return len(self.y)
-    
+
+
+class EEGDataset_Constant(Dataset):
+    '''
+    Custom Dataset object for PyTorch to load the dataset
+    '''
+    def __init__(self, x, y, train, val):
+        super(EEGDataset).__init__()
+        assert x.shape[0] == y.size
+        self.x = x
+        self.y = [y[i][0] for i in range(y.size)]
+        self.train = train
+        self.val = val
+
+    def __getitem__(self,key):
+        return (self.x[key], self.y[key])
+          
+    def __len__(self):
+        return len(self.y)
+           
 def load_data(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
     """
     Load dataset
@@ -223,6 +242,54 @@ def load_data(path, role, winLength, numChan, srate, feature, one_channel=False,
         f = h5py.File(path + "child_mind_abdu128/" + f"child_mind_y_{role}_{winLength}s_128chan_{feature}.mat", 'r')
     y128 = f[f'Y_{role}']
     return EEGDataset(x24, y24, x128, y128, role=='train', role=='val')
+
+
+def load_data_constant(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
+    """
+    Load dataset
+    :param  
+        path: Filepath to the dataset
+        role: Role of the dataset. Can be "train", "val", or "test"
+        winLength: Length of time window. Can be 2 or 15
+        numChan: Number of channels. Can be 24 or 128
+        srate: Sampling rate. Supporting 126Hz
+        feature: Input feature. Can be "raw", "spectral", or "topo"
+        one_channel: Where input has 1 or 3 channel in depth dimension. Matters when load topo data as number of input channels 
+                are different from original's
+        version: Any additional information of the datafile. Will be appended to the file name at the end
+    """
+    transform = T.Compose([
+        T.ToTensor()
+    ])
+    if version:
+        f = h5py.File(path + f"child_mind_x_{role}_{winLength}s_128chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + f"child_mind_x_{role}_{winLength}s_128chan_{feature}.mat", 'r')
+    x = f[f'X_{role}']
+    if feature == 'raw':
+        x = np.transpose(x,(0,2,1))
+        x = np.reshape(x,(-1,1,128,winLength*srate))
+        if numChan == 24:
+            x = x[:, :, [22, 9, 33, 24, 11, 124, 122, 29, 6, 111, 45, 36, 104, 108, 42, 55, 93, 58, 52, 62, 92, 96, 70]]
+    elif feature == 'topo':
+        if one_channel:
+            samples = []
+            for i in range(x.shape[0]):
+                image = x[i]
+                b, g, r = image[0,:, :], image[1,:, :], image[2,:, :]
+                concat = np.concatenate((b,g,r), axis=1)
+                samples.append(concat)
+            x = np.stack(samples)
+            x = np.reshape(x,(-1,1,x.shape[1],x.shape[2]))
+    
+    if version:
+        f = h5py.File(path + f"child_mind_y_{role}_{winLength}s_128chan_{feature}_{version}.mat", 'r')
+    else:
+        f = h5py.File(path + f"child_mind_y_{role}_{winLength}s_128chan_{feature}.mat", 'r')
+    y = f[f'Y_{role}']
+   
+    return EEGDataset_Constant(x, y, role=='train', role=='val')
+
 
 def load_data_mixed(path, role, winLength, numChan, srate, feature, one_channel=False, version=""):
     """

@@ -22,6 +22,8 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 role = 'test'
 test_data = load_data_constant(path + "child_mind_abdu128/", role, winLength, 24, srate, feature, one_channel)
+print(f'X_test shape: {len(test_data)}, {test_data[0][0].shape}')
+print(f'Y_test shape: {len(test_data)}, {test_data[0][1].shape}')
 
 def collate_batch(batch):
     y_list = []
